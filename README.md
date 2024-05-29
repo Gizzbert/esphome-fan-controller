@@ -1,5 +1,5 @@
 # esphome-fan-controller
-Yet another esphome based fan controller. Can be controlled either manually or by temperature sensor.
+Yet another esphome based fan controller. Can be controlled either manually or by DS18 temperature sensor, or by input from Home Assistant temperature sensor.
 
 It works with a simple d1mini pro and 4pin controlled fans which can be controlled via PWM.
 
@@ -14,16 +14,16 @@ D3 drives the MOSFET that can switch the fans off.
 
 # Notes
 ## power supply / fan type
-I use 12V fans which requires to use some DC-DC converter down to 5V for the d1mini.
+I use 12V fans which requires to use some DC-DC converter down to 5V for the d1mini. I'm using LM2596.
 ## level shifting
-My fans (brand is upHere) have no problem with PWM from the esp8266 being only at 3.3V level.
+My fans have no problem with PWM from the esp8266 being only at 3.3V level.
 Same is true for tacho input (anyway measured as "pulled to low").
 ## mosfet type
-Use a ttl compatible type that is "good enough" at 3.3V gate source voltage like the IRL540.
+Use a ttl compatible type that is "good enough" at 3.3V gate source voltage like the IRL540-N-Ch.
 I use a 1k resistor from esp output to gate.
 ## mosfet needed?
 The MOSFET is optional. You can just leave it out. Depending on the fans you use they will still run with their
-built in minimum speed.
+built in minimum speed when "off".
 ## 3pin fans?
 Please use 4pin fans otherwise the speed control does not work.
 ## multipe fans?
@@ -40,9 +40,10 @@ reaches "100% temp" and stay at 100% of course as long as the temp does go down.
 
 # Home Assistant
 in home assistant it looks like this <img style='float: right;' src='img/ha.jpg'>
+Additionally there will be a new sensor already defined in Home assitant which can drive the fan speed.
 
 # Communication
-Currently the code uses MQTT to communicate, which is my preferred way to do it as it is more generally usable, but you can easily switch to "native api" if you like to or if you have no mqtt server running.
+Currently the code uses the native API to communicate, you can easily switch to MQTT if you like to.
 
 # Other
 The "code" (its just a piece of yaml) also has the usual stuff enabled, like some system sensors about uptime and wifi.

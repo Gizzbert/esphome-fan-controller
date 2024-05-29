@@ -1,39 +1,41 @@
-substitutions:
-  friendly_name: Fan Controller
-  name: fan-controller
+# inputs from: 
+# https://github.com/patrickcollins12/esphome-fan-controller?tab=readme-ov-file
+# https://github.com/sker65/esphome-fan-controller?tab=readme-ov-file
 
+#------------------------- basic setup ----------------#
+
+substitutions:
+  friendly_name: Cooling Fan
+  name: cooling-fan
 
 esphome:
   name: ${name}
 
-#########################                                                                                                                                                                                                                
-# ESP AND NETWORK SETUP                                                                                                                                                                                                                
-
 esp8266:
   board: d1_mini
 
-# pid climate log update is noisy, dial it back to warn                                                                                                                                                                                  
+# Throttle writing parameters to the internal flash memory to reduce ESP memory wear / degradation
+preferences:
+  flash_write_interval: 15min
+
+# pid climate log update is noisy, dial it back to warn
 logger:
   level: DEBUG
   logs:
     dallas: DEBUG
 
-# uncomment if you prefer native api
-#api:
+# Enable default Home Assistant API
+api:
+# OR mqtt over native api
+#mqtt:
+#  broker: "192.168.0.130"
+#  discovery: true
+#  discovery_prefix: homeassistant
+#  log_topic: 
+#    topic: ${name}/log
+#    level: WARN
 
-# i prefer mqtt over native api
-mqtt:
-  broker: "###### your broker address here #####"
-  discovery: true
-  discovery_prefix: homeassistant
-  log_topic: 
-    topic: ${name}/log
-    level: WARN
-
-web_server:
-  port: 80
-
-# default HA integration, OTA updater and backup http web portal                                                                                                                                                                         
+# default OTA updater and backup http web portal
 ota:
   on_begin:
     then:
@@ -47,47 +49,49 @@ ota:
     then:
       - logger.log: "OTA end"
 
+wifi:
+  networks:
+    ssid: !secret wifi_ssid
+    password: !secret wifi_password
+  manual_ip:
+    static_ip: 192.168.0.238
+    gateway: 192.168.0.1
+    subnet: 255.255.255.0
+    dns1: 192.168.0.1
+
+# fallback for when wifi does not work
 captive_portal:
 
-wifi:
-
-  # Read the wifi/pass from secrets.yaml:                                                                                                                                                                                                
-  # wifi_ssid: "My Wifi XX"                                                                                                                                                                                                              
-  # wifi_password: "XXXXXXX"                                                                                                                                                                                                             
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
-  fast_connect: true
-
-  # Enable fallback hotspot (captive portal) in case wifi connection fails                                                                                                                                                               
-  ap:
-    ssid: FanController
-
+web_server:
+  port: 80
 
 text_sensor:
-  # Send IP Address                                                                                                                                                                                                                      
+  # Send IP Address
   - platform: wifi_info
     ip_address:
       name: IP Address
     ssid:
       name: SSID
 
-  # Send Uptime in raw seconds                                                                                                                                                                                                           
+  # Send Uptime in raw seconds
   - platform: template
     name: Uptime
     id: uptime_human
     icon: mdi:clock-start
 
+#------------------------- END basic setup ----------------#
+
 dallas:
   - pin: D0
-    update_interval: 10s
+    update_interval: 30s
 
 sensor:
-  # Send WiFi signal strength & uptime to HA                                                                                                                                                                                             
+  # Send WiFi signal strength & uptime to HA
   - platform: wifi_signal
     name: WiFi Strength
     update_interval: 60s
 
-  # RPM Signal from Fan                                                                                                                                                                                                                  
+  # RPM Signal from Fan
   - platform: pulse_counter
     pin:
       number: D2
@@ -103,11 +107,9 @@ sensor:
     count_mode:
       rising_edge: INCREMENT
       falling_edge: DISABLE
-    update_interval: 10s
+    update_interval: 30s
 
-  # This is a bit of overkill. It sends a human readable                                                                                                                                                                                 
-  # uptime string                                                                                                                                                                                                                        
-  # 1h 41m 32s instead of 6092 seconds                                                                                                                                                                                                   
+  # This is a bit of overkill. It sends a human readable uptime string 1h 41m 32s instead of 6092 seconds
   - platform: uptime
     name: Uptime
     id: uptime_sensor
@@ -116,21 +118,39 @@ sensor:
       then:
         - text_sensor.template.publish:
             id: uptime_human
-            # Custom C++ code to generate the result                                                                                                                                                                                     
+            # Custom C++ code to generate the result
             state: !lambda |-
               int seconds = round(id(uptime_sensor).raw_state);
-              int days = seconds / (24 * 3600);                                                                                                                                                                                          
-              seconds = seconds % (24 * 3600);                                                                                                                                                                                           
-              int hours = seconds / 3600;                                                                                                                                                                                                
-              seconds = seconds % 3600;                                                                                                                                                                                                  
-              int minutes = seconds /  60;                                                                                                                                                                                               
-              seconds = seconds % 60;                                                                                                                                                                                                    
-              return (                                                                                                                                                                                                                   
+              int days = seconds / (24 * 3600);
+              seconds = seconds % (24 * 3600);
+              int hours = seconds / 3600;
+              seconds = seconds % 3600;
+              int minutes = seconds /  60;
+              seconds = seconds % 60;
+              return (
                 (days ? to_string(days) + "d " : "") +
                 (hours ? to_string(hours) + "h " : "") +
                 (minutes ? to_string(minutes) + "m " : "") +
                 (to_string(seconds) + "s")
-              ).c_str();                                                                                                                                                                                                                 
+              ).c_str();
+
+  # get goodwe temp from homeassistant
+  - platform: homeassistant
+    name: Goodwe PV Temperature
+    id: pv_temperature
+    entity_id: sensor.pv_temperature
+    on_value:
+      # map min temp whn fan should start 30°C to max temp 50°C when it should have max speed
+      - lambda: !lambda |
+          auto pct = constrain(map(x, id(start_temp).state, id(max_temp).state, 1, 100),0,100);
+          if( id(automatic).state && id(temp_source).state) {
+            if (pct>1) {
+              auto call = id(the_fan).turn_on(); call.set_speed(pct); call.perform();
+            } else {
+              auto call = id(the_fan).turn_off(); call.set_speed(1); call.perform();
+            }
+            ESP_LOGD("custom", "Setting speed to %i %%", pct);
+          }
 
   - platform: dallas
     #address: 0x1c0000031edd2a28
@@ -144,7 +164,7 @@ sensor:
       # map min temp whn fan should start 30°C to max temp 50°C when it should have max speed
       - lambda: !lambda |
           auto pct = constrain(map(x, id(start_temp).state, id(max_temp).state, 1, 100),0,100);
-          if( id(automatic).state ) {
+          if( id(automatic).state && !id(temp_source).state) {
             if (pct>1) {
               auto call = id(the_fan).turn_on(); call.set_speed(pct); call.perform();
             } else {
@@ -154,22 +174,24 @@ sensor:
           }
 
 output:
-  # Wire D1 into the PWM pin of your 12v fan                                                                                                                                                                                  
-  # ledc is the name of the pwm output system on an esp32                                                                                                                                                                                
+  # Wire D1 into the PWM pin of your 12v fan
+  # ledc is the name of the pwm output system on an esp32
   - platform: esp8266_pwm
     id: fan_speed
     pin: D1
 
-    # 25KHz is standard PC fan frequency, minimises buzzing for eso8266 1kHz is max                                                                                                                                                                           
-    frequency: "1000 Hz"
+    # 25KHz is standard PC fan frequency, minimises buzzing for eso8266 1kHz is max
+    frequency: "2000 Hz"
 
-    # my fans stop working below 13% powerful.                                                                                                                                                                                           
-    # also they're  powerful and loud, cap their max speed to 80%                                                                                                                                                                        
+    # some fans stop working below xx% power.
+    # also if they're  powerful and loud, cap their max speed to 80%
+    #min_power: 13%
+    #max_power: 80%
     min_power: 0
     max_power: 1
     zero_means_zero: True
     
-  # Fan power (MOSFET) via D3 with will switch GND for the fan through an N-Ch MOSFET
+  # Fan power (MOSFET transistor) via D3 with will switch GND for the fan through an N-Ch MOSFET
   - platform: gpio
     pin: D3
     id: fan_power
@@ -185,14 +207,16 @@ fan:
       - output.turn_off: fan_power
 
 # two number controlling the speed adjustment range
+# fans will be switched on at "fan start temp" and 
+# will increase speed until the temp reaches "100% temp" and stay at 100% as long as the temp does not go down.
 number:
   - platform: template
     name: "Fan Start Temp"
     id: start_temp
     internal: false
-    max_value: 40.0
+    max_value: 60.0
     min_value: 20.0
-    initial_value: 30
+    initial_value: 40
     step: 1
     optimistic: true
     mode: slider
@@ -203,7 +227,7 @@ number:
     internal: false
     initial_value: 50
     max_value: 60.0
-    min_value: 30.0
+    min_value: 40.0
     step: 1
     optimistic: true
     mode: slider
@@ -218,14 +242,32 @@ switch:
     on_turn_on:
       # if auto is turned on restore temp based value
       - lambda:  !lambda |
-          auto pct = constrain(map(id(fan_temperature).state, id(start_temp).state, id(max_temp).state, 1, 100),0,100);
-          if (pct>1) {
-            auto call = id(the_fan).turn_on(); call.set_speed(pct); call.perform();
+          if (id(temp_source).state) {
+            auto pct = constrain(map(id(pv_temperature).state, id(start_temp).state, id(max_temp).state, 1, 100),0,100);
+            if (pct>1) {
+              auto call = id(the_fan).turn_on(); call.set_speed(pct); call.perform();
+            } else {
+              auto call = id(the_fan).turn_off(); call.set_speed(1); call.perform();
+            }
           } else {
-            auto call = id(the_fan).turn_off(); call.set_speed(1); call.perform();
+            auto pct = constrain(map(id(fan_temperature).state, id(start_temp).state, id(max_temp).state, 1, 100),0,100);
+            if (pct>1) {
+              auto call = id(the_fan).turn_on(); call.set_speed(pct); call.perform();
+            } else {
+              auto call = id(the_fan).turn_off(); call.set_speed(1); call.perform();
+            }
           }
-          
+
+  # switch to choose between goodwe temp and dallas temp as reference for fan
+  - platform: template
+    name: Goodwe PV temp controlled
+    optimistic: true
+    id: temp_source
+    restore_mode: RESTORE_DEFAULT_ON
+
+
+
 button:
-  # Expose an ESP32 restart button to HA                                                                                                                                                                                                 
+  # Expose an ESP32 restart button to HA
   - platform: restart
     name: "Restart"
