@@ -12,9 +12,16 @@ D1 drives the PWM output for speed controll of the fans.
 D2 is the tacho input for measuring rotation speed.
 D3 drives the MOSFET that can switch the fans off.
 
+# Bill of materials
+- Wemos D1 mini ESP8266, flashed with [ESPhome](https://esphome.github.io/esp-web-tools/).
+- 12v buck converter to get to 5v, ie LM2596
+- resistors 1K, 4.7K
+- 4-pin fan(s) + 4-pin male connector(s)
+- optional: DS18 temp sensor. Can easily incorporate a DHT or leverage temp sensors already available in Home assistant
+- optional: mosfet transistor IRL540-N-Ch
 # Notes
 ## power supply / fan type
-I use 12V fans which requires to use some DC-DC converter down to 5V for the d1mini. I'm using LM2596.
+I use 12V fans which requires to use some DC-DC converter down to 5V for the d1mini. 
 ## level shifting
 My fans have no problem with PWM from the esp8266 being only at 3.3V level.
 Same is true for tacho input (anyway measured as "pulled to low").
